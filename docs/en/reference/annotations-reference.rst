@@ -7,17 +7,40 @@ given with short explanations on their context and usage.
 @AlsoLoad
 ---------
 
-Specify an additional mongodb field to check for and load data from it if it exists.
+Specify an additional MongoDB document field to hydrate from if the mapped field
+does not exist.
 
 .. code-block:: php
 
     <?php
 
-    /** @Field @AlsoLoad("oldFieldName")*/
-    private $fieldName;
+    /** @String @AlsoLoad("name") */
+    public $fullName;
 
-The above ``$fieldName`` will be loaded from ``fieldName`` if it exists and will fallback to ``oldFieldName``
-if it does not exist.
+The ``$fullName`` property will be lodaed from ``fullName`` if it exists, but
+fall back to ``name`` if it does not exist.
+
+Additionally, ``@AlsoLoad`` may be used used on a method with one or a list of
+field names. During hydration, the fields will be checked in order and, for each
+field present, the method will be invoked with the value as a single argument.
+
+.. code-block:: php
+
+    <?php
+
+    /** @AlsoLoad({"name", "fullName"}) */
+    public function populateFirstAndLastName($name)
+    {
+        $e = explode(' ', $name);
+        $this->firstName = $e[0];
+        $this->lastName = $e[1];
+    }
+
+The `@HasLifecycleCallbacks`_ annotation must be present on the class in which
+the method is declared for the callback to be registered.
+
+For additional information on using ``@AlsoLoad``, see
+:doc:`Migrations <migrating-schemas>`.
 
 @Bin
 ----
