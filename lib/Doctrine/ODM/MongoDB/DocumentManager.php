@@ -121,13 +121,6 @@ class DocumentManager implements ObjectManager
     private $closed = false;
 
     /**
-     * Mongo command character
-     *
-     * @var string
-     */
-    private $cmd;
-
-    /**
      * Collection of query filters.
      *
      * @var \Doctrine\ODM\MongoDB\Query\FilterCollection
@@ -145,7 +138,6 @@ class DocumentManager implements ObjectManager
     protected function __construct(Connection $conn = null, Configuration $config = null, EventManager $eventManager = null) {
         $this->config = $config ?: new Configuration();
         $this->eventManager = $eventManager ?: new EventManager();
-        $this->cmd = $this->config->getMongoCmd();
         $this->connection = $conn ?: new Connection(null, array(), $this->config, $this->eventManager);
 
         $metadataFactoryClassName = $this->config->getClassMetadataFactoryName();
@@ -163,11 +155,10 @@ class DocumentManager implements ObjectManager
             $this->eventManager,
             $hydratorDir,
             $hydratorNs,
-            $this->config->getAutoGenerateHydratorClasses(),
-            $this->config->getMongoCmd()
+            $this->config->getAutoGenerateHydratorClasses()
         );
 
-        $this->unitOfWork = new UnitOfWork($this, $this->eventManager, $this->hydratorFactory, $this->cmd);
+        $this->unitOfWork = new UnitOfWork($this, $this->eventManager, $this->hydratorFactory);
         $this->hydratorFactory->setUnitOfWork($this->unitOfWork);
         $this->schemaManager = new SchemaManager($this, $this->metadataFactory);
         $this->proxyFactory = new ProxyFactory($this,
@@ -199,7 +190,7 @@ class DocumentManager implements ObjectManager
      */
     public static function create(Connection $conn = null, Configuration $config = null, EventManager $eventManager = null)
     {
-        return new DocumentManager($conn, $config, $eventManager);
+        return new static($conn, $config, $eventManager);
     }
 
     /**
@@ -369,7 +360,7 @@ class DocumentManager implements ObjectManager
      */
     public function createQueryBuilder($documentName = null)
     {
-        return new Query\Builder($this, $this->cmd, $documentName);
+        return new Query\Builder($this, $documentName);
     }
 
     /**
@@ -573,11 +564,11 @@ class DocumentManager implements ObjectManager
      *
      * The returned reference may be a partial object if the document is not yet loaded/managed.
      * If it is a partial object it will not initialize the rest of the document state on access.
-     * Thus you can only ever safely access the identifier of an document obtained through
+     * Thus you can only ever safely access the identifier of a document obtained through
      * this method.
      *
      * The use-cases for partial references involve maintaining bidirectional associations
-     * without loading one side of the association or to update an document without loading it.
+     * without loading one side of the association or to update a document without loading it.
      * Note, however, that in the latter case the original (persistent) document data will
      * never be visible to the application (especially not event listeners) as it will
      * never be loaded in the first place.
@@ -668,25 +659,6 @@ class DocumentManager implements ObjectManager
         return $this->config;
     }
 
-    public function getClassNameFromDiscriminatorValue(array $mapping, $value)
-    {
-        $discriminatorField = isset($mapping['discriminatorField']) ? $mapping['discriminatorField'] : '_doctrine_class_name';
-        if (is_array($value) && isset($value[$discriminatorField])) {
-            $discriminatorValue = $value[$discriminatorField];
-            return isset($mapping['discriminatorMap'][$discriminatorValue]) ? $mapping['discriminatorMap'][$discriminatorValue] : $discriminatorValue;
-        } else {
-            $class = $this->getClassMetadata($mapping['targetDocument']);
-
-            // @TODO figure out how to remove this
-            if ($class->discriminatorField) {
-                if (isset($value[$class->discriminatorField['name']])) {
-                    return $class->discriminatorMap[$value[$class->discriminatorField['name']]];
-                }
-            }
-        }
-        return $mapping['targetDocument'];
-    }
-
     /**
      * Returns a DBRef array for the supplied document.
      *
@@ -701,28 +673,43 @@ class DocumentManager implements ObjectManager
         if ( ! is_object($document)) {
             throw new \InvalidArgumentException('Cannot create a DBRef, the document is not an object');
         }
-        $className = get_class($document);
-        $class = $this->getClassMetadata($className);
+
+        $class = $this->getClassMetadata(get_class($document));
         $id = $this->unitOfWork->getDocumentIdentifier($document);
 
-        if (isset($referenceMapping['simple']) && $referenceMapping['simple']) {
+        if ( ! empty($referenceMapping['simple'])) {
             return $class->getDatabaseIdentifierValue($id);
         }
 
         $dbRef = array(
-            $this->cmd . 'ref' => $class->getCollection(),
-            $this->cmd . 'id'  => $class->getDatabaseIdentifierValue($id),
-            $this->cmd . 'db'  => $this->getDocumentDatabase($className)->getName()
+            '$ref' => $class->getCollection(),
+            '$id'  => $class->getDatabaseIdentifierValue($id),
+            '$db'  => $this->getDocumentDatabase($class->name)->getName(),
         );
 
-        if ($class->discriminatorField) {
-            $dbRef[$class->discriminatorField['name']] = $class->discriminatorValue;
+        if ($class->hasDiscriminator()) {
+            $dbRef[$class->discriminatorField] = $class->discriminatorValue;
         }
 
-        // add a discriminator value if the referenced document is not mapped explicitly to a targetDocument
-        if ($referenceMapping && ! isset($referenceMapping['targetDocument'])) {
-            $discriminatorField = isset($referenceMapping['discriminatorField']) ? $referenceMapping['discriminatorField'] : '_doctrine_class_name';
-            $discriminatorValue = isset($referenceMapping['discriminatorMap']) ? array_search($class->getName(), $referenceMapping['discriminatorMap']) : $class->getName();
+        /* Add a discriminator value if the referenced document is not mapped
+         * explicitly to a targetDocument class.
+         */
+        if ($referenceMapping !== null && ! isset($referenceMapping['targetDocument'])) {
+            $discriminatorField = $referenceMapping['discriminatorField'];
+            $discriminatorValue = isset($referenceMapping['discriminatorMap'])
+                ? array_search($class->name, $referenceMapping['discriminatorMap'])
+                : $class->name;
+
+            /* If the discriminator value was not found in the map, use the full
+             * class name. In the future, it may be preferable to throw an
+             * exception here (perhaps based on some strictness option).
+             *
+             * @see PersistenceBuilder::prepareEmbeddedDocumentValue()
+             */
+            if ($discriminatorValue === false) {
+                $discriminatorValue = $class->name;
+            }
+
             $dbRef[$discriminatorField] = $discriminatorValue;
         }
 

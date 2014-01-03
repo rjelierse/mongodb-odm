@@ -88,22 +88,14 @@ class HydratorFactory
     private $hydrators = array();
 
     /**
-     * Mongo command prefix
-     *
-     * @var string
-     */
-    private $cmd;
-
-    /**
      * @param DocumentManager $dm
      * @param EventManager $evm
      * @param string $hydratorDir
      * @param string $hydratorNs
      * @param boolean $autoGenerate
-     * @param string $cmd
      * @throws HydratorException
      */
-    public function __construct(DocumentManager $dm, EventManager $evm, $hydratorDir, $hydratorNs, $autoGenerate, $cmd)
+    public function __construct(DocumentManager $dm, EventManager $evm, $hydratorDir, $hydratorNs, $autoGenerate)
     {
         if ( ! $hydratorDir) {
             throw HydratorException::hydratorDirectoryRequired();
@@ -116,7 +108,6 @@ class HydratorFactory
         $this->hydratorDir = $hydratorDir;
         $this->hydratorNamespace = $hydratorNs;
         $this->autoGenerate = $autoGenerate;
-        $this->cmd = $cmd;
     }
 
     /**
@@ -246,7 +237,7 @@ EOF
                 \$className = \$this->class->fieldMappings['%2\$s']['targetDocument'];
                 \$mongoId = \$reference;
             } else {
-                \$className = \$this->dm->getClassNameFromDiscriminatorValue(\$this->class->fieldMappings['%2\$s'], \$reference);
+                \$className = \$this->unitOfWork->getClassNameForAssociation(\$this->class->fieldMappings['%2\$s'], \$reference);
                 \$mongoId = \$reference['\$id'];
             }
             \$targetMetadata = \$this->dm->getClassMetadata(\$className);
@@ -325,7 +316,7 @@ EOF
         /** @EmbedOne */
         if (isset(\$data['%1\$s'])) {
             \$embeddedDocument = \$data['%1\$s'];
-            \$className = \$this->dm->getClassNameFromDiscriminatorValue(\$this->class->fieldMappings['%2\$s'], \$embeddedDocument);
+            \$className = \$this->unitOfWork->getClassNameForAssociation(\$this->class->fieldMappings['%2\$s'], \$embeddedDocument);
             \$embeddedMetadata = \$this->dm->getClassMetadata(\$className);
             \$return = \$embeddedMetadata->newInstance();
 

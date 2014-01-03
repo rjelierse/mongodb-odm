@@ -48,25 +48,25 @@ use Doctrine\ODM\MongoDB\Types\Type;
 class UnitOfWork implements PropertyChangedListener
 {
     /**
-     * An document is in MANAGED state when its persistence is managed by an DocumentManager.
+     * A document is in MANAGED state when its persistence is managed by a DocumentManager.
      */
     const STATE_MANAGED = 1;
 
     /**
-     * An document is new if it has just been instantiated (i.e. using the "new" operator)
-     * and is not (yet) managed by an DocumentManager.
+     * A document is new if it has just been instantiated (i.e. using the "new" operator)
+     * and is not (yet) managed by a DocumentManager.
      */
     const STATE_NEW = 2;
 
     /**
      * A detached document is an instance with a persistent identity that is not
-     * (or no longer) associated with an DocumentManager (and a UnitOfWork).
+     * (or no longer) associated with a DocumentManager (and a UnitOfWork).
      */
     const STATE_DETACHED = 3;
 
     /**
      * A removed document instance is an instance with a persistent identity,
-     * associated with an DocumentManager, whose persistent state has been
+     * associated with a DocumentManager, whose persistent state has been
      * deleted (or is scheduled for deletion).
      */
     const STATE_REMOVED = 4;
@@ -257,26 +257,17 @@ class UnitOfWork implements PropertyChangedListener
     private $parentAssociations = array();
 
     /**
-     * Mongo command character
-     *
-     * @var string
-     */
-    private $cmd;
-
-    /**
      * Initializes a new UnitOfWork instance, bound to the given DocumentManager.
      *
      * @param DocumentManager $dm
      * @param EventManager $evm
      * @param HydratorFactory $hydratorFactory
-     * @param string $cmd
      */
-    public function __construct(DocumentManager $dm, EventManager $evm, HydratorFactory $hydratorFactory, $cmd)
+    public function __construct(DocumentManager $dm, EventManager $evm, HydratorFactory $hydratorFactory)
     {
         $this->dm = $dm;
         $this->evm = $evm;
         $this->hydratorFactory = $hydratorFactory;
-        $this->cmd = $cmd;
     }
 
     /**
@@ -288,7 +279,7 @@ class UnitOfWork implements PropertyChangedListener
     public function getPersistenceBuilder()
     {
         if ( ! $this->persistenceBuilder) {
-            $this->persistenceBuilder = new PersistenceBuilder($this->dm, $this, $this->cmd);
+            $this->persistenceBuilder = new PersistenceBuilder($this->dm, $this);
         }
         return $this->persistenceBuilder;
     }
@@ -337,7 +328,7 @@ class UnitOfWork implements PropertyChangedListener
         if ( ! isset($this->persisters[$documentName])) {
             $class = $this->dm->getClassMetadata($documentName);
             $pb = $this->getPersistenceBuilder();
-            $this->persisters[$documentName] = new Persisters\DocumentPersister($pb, $this->dm, $this->evm, $this, $this->hydratorFactory, $class, $this->cmd);
+            $this->persisters[$documentName] = new Persisters\DocumentPersister($pb, $this->dm, $this->evm, $this, $this->hydratorFactory, $class);
         }
         return $this->persisters[$documentName];
     }
@@ -351,7 +342,7 @@ class UnitOfWork implements PropertyChangedListener
     {
         if ( ! isset($this->collectionPersister)) {
             $pb = $this->getPersistenceBuilder();
-            $this->collectionPersister = new Persisters\CollectionPersister($this->dm, $pb, $this, $this->cmd);
+            $this->collectionPersister = new Persisters\CollectionPersister($this->dm, $pb, $this);
         }
         return $this->collectionPersister;
     }
@@ -603,7 +594,7 @@ class UnitOfWork implements PropertyChangedListener
                 }
 
                 // Inject PersistentCollection
-                $coll = new PersistentCollection($value, $this->dm, $this, $this->cmd);
+                $coll = new PersistentCollection($value, $this->dm, $this);
                 $coll->setOwner($document, $mapping);
                 $coll->setDirty( ! $value->isEmpty());
                 $class->reflFields[$name]->setValue($document, $coll);
@@ -896,7 +887,6 @@ class UnitOfWork implements PropertyChangedListener
         foreach ($value as $key => $entry) {
             $targetClass = $this->dm->getClassMetadata(get_class($entry));
             $state = $this->getDocumentState($entry, self::STATE_NEW);
-            $oid = spl_object_hash($entry);
 
             // Handle "set" strategy for multi-level hierarchy
             $pathKey = $mapping['strategy'] !== 'set' ? $count : $key;
@@ -1571,7 +1561,11 @@ class UnitOfWork implements PropertyChangedListener
     }
 
     /**
-     * Gets the state of an entity with regard to the current unit of work.
+     * Gets the state of a document within the current unit of work.
+     *
+     * NOTE: This method sees documents that are not MANAGED or REMOVED and have a
+     *       populated identifier, whether it is generated or manually assigned, as
+     *       DETACHED. This can be incorrect for manually assigned identifiers.
      *
      * @param object   $document
      * @param int|null $assume The state to assume if the state is not yet known (not MANAGED or REMOVED).
@@ -1665,7 +1659,7 @@ class UnitOfWork implements PropertyChangedListener
 
     /**
      * INTERNAL:
-     * Gets a document in the identity map by its identifier.
+     * Gets a document in the identity map by its identifier hash.
      *
      * @ignore
      * @param string $id
@@ -1679,7 +1673,7 @@ class UnitOfWork implements PropertyChangedListener
 
     /**
      * INTERNAL:
-     * Tries to get a document by its identifier. If no document is found for
+     * Tries to get a document by its identifier hash. If no document is found for
      * the given hash, FALSE is returned.
      *
      * @ignore
@@ -1708,7 +1702,7 @@ class UnitOfWork implements PropertyChangedListener
     }
 
     /**
-     * Checks whether a document is registered in the identity map.
+     * Checks whether a document is registered in the identity map of this UnitOfWork.
      *
      * @param object $document
      * @return boolean
@@ -2068,7 +2062,7 @@ class UnitOfWork implements PropertyChangedListener
                             if ( ! $mergeCol instanceof Collection) {
                                 $mergeCol = new ArrayCollection($mergeCol);
                             }
-                            $mergeCol = new PersistentCollection($mergeCol, $this->dm, $this, $this->cmd);
+                            $mergeCol = new PersistentCollection($mergeCol, $this->dm, $this);
                             $mergeCol->setInitialized(true);
                         } else {
                             $mergeCol->setDocumentManager($this->dm);
@@ -2521,6 +2515,38 @@ class UnitOfWork implements PropertyChangedListener
     }
 
     /**
+     * Gets the class name for an association (embed or reference) with respect
+     * to any discriminator value.
+     *
+     * @param array $mapping Field mapping for the association
+     * @param array $data    Data for the embedded document or reference
+     */
+    public function getClassNameForAssociation(array $mapping, array $data)
+    {
+        $discriminatorField = isset($mapping['discriminatorField']) ? $mapping['discriminatorField'] : null;
+
+        if (isset($discriminatorField, $data[$discriminatorField])) {
+            $discriminatorValue = $data[$discriminatorField];
+
+            return isset($mapping['discriminatorMap'][$discriminatorValue])
+                ? $mapping['discriminatorMap'][$discriminatorValue]
+                : $discriminatorValue;
+        }
+
+        $class = $this->dm->getClassMetadata($mapping['targetDocument']);
+
+        if (isset($class->discriminatorField, $data[$class->discriminatorField])) {
+            $discriminatorValue = $data[$class->discriminatorField];
+
+            return isset($class->discriminatorMap[$discriminatorValue])
+                ? $class->discriminatorMap[$discriminatorValue]
+                : $discriminatorValue;
+        }
+
+        return $mapping['targetDocument'];
+    }
+
+    /**
      * INTERNAL:
      * Creates a document. Used for reconstitution of documents during hydration.
      *
@@ -2536,12 +2562,16 @@ class UnitOfWork implements PropertyChangedListener
         $class = $this->dm->getClassMetadata($className);
 
         // @TODO figure out how to remove this
-        if ($class->discriminatorField) {
-            if (isset($data[$class->discriminatorField['name']])) {
-                $type = $data[$class->discriminatorField['name']];
-                $class = $this->dm->getClassMetadata($class->discriminatorMap[$data[$class->discriminatorField['name']]]);
-                unset($data[$class->discriminatorField['name']]);
-            }
+        if (isset($class->discriminatorField, $data[$class->discriminatorField])) {
+            $discriminatorValue = $data[$class->discriminatorField];
+
+            $className = isset($class->discriminatorMap[$discriminatorValue])
+                ? $class->discriminatorMap[$discriminatorValue]
+                : $discriminatorValue;
+
+            $class = $this->dm->getClassMetadata($className);
+
+            unset($data[$class->discriminatorField]);
         }
 
         $id = $class->getPHPIdentifierValue($data['_id']);
@@ -2668,6 +2698,9 @@ class UnitOfWork implements PropertyChangedListener
 
     /**
      * Gets the identifier of a document.
+     * The returned value is always an array of identifier values. If the document
+     * has a composite identifier then the identifier values are in the same
+     * order as the identifier field names as returned by ClassMetadata#getIdentifierFieldNames().
      *
      * @param object $document
      * @return mixed The identifier value

@@ -16,21 +16,15 @@ use Doctrine\ODM\MongoDB\Tests\Mocks\DocumentPersisterMock;
 use Documents\ForumUser;
 use Documents\ForumAvatar;
 
-class UnitOfWorkTest extends \PHPUnit_Framework_TestCase
+class UnitOfWorkTest extends \Doctrine\ODM\MongoDB\Tests\BaseTest
 {
-    private $dm;
-    private $uow;
-
-    protected function setUp()
+    public function testIsDocumentScheduled()
     {
-        parent::setUp();
-        $this->dm = DocumentManagerMock::create(new ConnectionMock());
-        $this->uow = $this->dm->getUnitOfWork();
-    }
-
-    protected function tearDown()
-    {
-        unset($this->dm, $this->uow);
+        $class = $this->dm->getClassMetadata('Documents\ForumUser');
+        $user = new ForumUser();
+        $this->assertFalse($this->uow->isDocumentScheduled($user));
+        $this->uow->scheduleForInsert($class, $user);
+        $this->assertTrue($this->uow->isDocumentScheduled($user));
     }
 
     public function testScheduleForInsert()
@@ -277,19 +271,18 @@ class UnitOfWorkTest extends \PHPUnit_Framework_TestCase
 
     public function testPreUpdateTriggeredWithEmptyChangeset()
     {
-        $dm = DocumentManagerMock::create();
-        $evm = $dm->getEventManager()->addEventSubscriber(
+        $this->dm->getEventManager()->addEventSubscriber(
             new \Doctrine\ODM\MongoDB\Tests\Mocks\PreUpdateListenerMock()
         );
         $user = new \Documents\ForumUser();
         $user->username = '12345';
 
-        $dm->persist($user);
-        $dm->flush();
+        $this->dm->persist($user);
+        $this->dm->flush();
 
         $user->username = '1234';
-        $dm->persist($user);
-        $dm->flush();
+        $this->dm->persist($user);
+        $this->dm->flush();
     }
 
     public function testNotSaved()
@@ -383,7 +376,7 @@ class UnitOfWorkTest extends \PHPUnit_Framework_TestCase
 
     protected function getUnitOfWork(DocumentManager $dm)
     {
-        return new UnitOfWork($dm, $this->getMockEventManager(), $this->getMockHydratorFactory(), '$');
+        return new UnitOfWork($dm, $this->getMockEventManager(), $this->getMockHydratorFactory());
     }
 
     /**
@@ -422,7 +415,7 @@ class UnitOfWorkTest extends \PHPUnit_Framework_TestCase
 
     private function getMockDocumentPersister(PersistenceBuilder $pb, ClassMetadata $class)
     {
-        return new DocumentPersisterMock($pb, $this->dm, $this->dm->getEventManager(), $this->uow, $this->dm->getHydratorFactory(), $class, '$');
+        return new DocumentPersisterMock($pb, $this->dm, $this->dm->getEventManager(), $this->uow, $this->dm->getHydratorFactory(), $class);
     }
 
     protected function getClassMetadata($class, $flag)
