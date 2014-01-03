@@ -205,7 +205,8 @@ class PersistenceBuilderTest extends BaseTest
                     '$db' => 'doctrine_odm_tests',
                     '$id' => new \MongoId($article->id),
                     '$ref' => 'CmsArticle'
-                )
+                ),
+                '_id' => new \MongoId($comment->id),
             )
         );
         $this->assertEquals($expectedData, $this->pb->prepareUpsertData($comment));

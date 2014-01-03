@@ -75,7 +75,7 @@ class UnitOfWorkTest extends \Doctrine\ODM\MongoDB\Tests\BaseTest
 
     /* Operational tests */
 
-    public function testSavingSingleEntityWithIdentityColumnForcesInsert()
+    public function testSavingSingleDocumentWithIdentityFieldForcesInsert()
     {
         // Setup fake persister and id generator for identity generation
         $pb = $this->getMockPersistenceBuilder();
@@ -92,7 +92,7 @@ class UnitOfWorkTest extends \Doctrine\ODM\MongoDB\Tests\BaseTest
         $this->assertEquals(0, count($userPersister->getInserts()));
         $this->assertEquals(0, count($userPersister->getUpdates()));
         $this->assertEquals(0, count($userPersister->getDeletes()));
-        $this->assertFalse($this->uow->isInIdentityMap($user));
+        $this->assertTrue($this->uow->isInIdentityMap($user));
         // should no longer be scheduled for insert
         $this->assertTrue($this->uow->isScheduledForInsert($user));
 
